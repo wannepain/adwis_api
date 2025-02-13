@@ -10,9 +10,12 @@ from google.cloud.firestore_v1 import FieldFilter
 
 load_dotenv()
 
+print(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_PATH"))
 
 firebase_admin.initialize_app(
-    firebase_admin.credentials.Certificate(os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+    firebase_admin.credentials.Certificate(
+        os.getenv("GOOGLE_APPLICATION_CREDENTIALS_PATH")
+    )
 )
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
