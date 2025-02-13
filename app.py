@@ -10,10 +10,9 @@ from google.cloud.firestore_v1 import FieldFilter
 
 load_dotenv()
 
-credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_PATH").strip('"')
 
 firebase_admin.initialize_app(
-    firebase_admin.credentials.Certificate(credentials_path)
+    firebase_admin.credentials.Certificate(os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
 )
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
@@ -148,9 +147,11 @@ def webhook():
         subscription_id = event["data"]["object"]["subscription"]
         customer_id = event["data"]["object"]["customer"]
 
-        users_ref = db.collection("users").where(
-            filter=FieldFilter("stripeCustomerId", "==", customer_id)
-        ).stream()
+        users_ref = (
+            db.collection("users")
+            .where(filter=FieldFilter("stripeCustomerId", "==", customer_id))
+            .stream()
+        )
 
         for user_doc in users_ref:
             user_doc.reference.update(
@@ -160,9 +161,11 @@ def webhook():
     elif event["type"] == "customer.subscription.deleted":
         customer_id = event["data"]["object"]["customer"]
 
-        users_ref = db.collection("users").where(
-            filter=FieldFilter("stripeCustomerId", "==", customer_id)
-        ).stream()
+        users_ref = (
+            db.collection("users")
+            .where(filter=FieldFilter("stripeCustomerId", "==", customer_id))
+            .stream()
+        )
 
         for user_doc in users_ref:
             user_doc.reference.update({"subscriptionActive": False})
