@@ -78,6 +78,9 @@ def sign_in():  # first check if the customer exists, then act accordingly
 @app.route("/api/create-subscription", methods=["POST"])
 @cross_origin()
 def create_subscription():
+    if not data["uid"]:
+        return jsonify({"error": "no uid"}), 404
+
     data = request.json
     user_id = data["uid"]
 
