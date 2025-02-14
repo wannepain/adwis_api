@@ -164,14 +164,12 @@ def get_subscription():
         return jsonify({"error": "User not found"}), 404
 
     user_data = user_ref.to_dict()
-    print(user_data)
     if not "subscriptionId" in user_data:
         return jsonify({"subscription_type": "free", "data": None})
 
     subscription_id = user_data["subscriptionId"]
 
     subscription_data = stripe.Subscription.retrieve(subscription_id)
-    print(subscription_data)
     return jsonify(
         {
             "subscription_type": "monthly",
