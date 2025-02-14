@@ -10,14 +10,18 @@ from google.cloud.firestore_v1 import FieldFilter
 
 load_dotenv()
 
-print(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_PATH"))
 
-firebase_admin.initialize_app(
-    firebase_admin.credentials.Certificate(
-        os.getenv("GOOGLE_APPLICATION_CREDENTIALS_PATH")
+try:
+    print(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_PATH"))
+    firebase_admin.initialize_app(
+        firebase_admin.credentials.Certificate(
+            os.getenv("GOOGLE_APPLICATION_CREDENTIALS_PATH")
+        )
     )
-)
-
+    print("Firebase app inicialized successfully")
+except Exception as e:
+    print(f"Error initializing Firebase app:{e}")
+    raise
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 endpoint_secret = os.getenv("STRIPE_ENDPOINT_SECRET")
 # app config
@@ -153,6 +157,8 @@ def webhook():
         subscription_id = event["data"]["object"]["subscription"]
         customer_id = event["data"]["object"]["customer"]
 
+        print(f"subscription_id:{subscription_id}")
+        print(f"customer_id:{customer_id}")
         users_ref = (
             db.collection("users")
             .where(filter=FieldFilter("stripeCustomerId", "==", customer_id))
