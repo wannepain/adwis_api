@@ -137,7 +137,7 @@ def cancel_subscription():
     user_data = user_ref.to_dict()
     print(user_data)
     if not "subscriptionId" in user_data:
-        return jsonify({"susbcription_type": "free", "data": None})
+        return jsonify({"error": "no subscription"})
 
     subscription_id = user_data["subscriptionId"]
 
@@ -166,7 +166,7 @@ def get_subscription():
     user_data = user_ref.to_dict()
     print(user_data)
     if not "subscriptionId" in user_data:
-        return jsonify({"susbcription_type": "free", "data": None})
+        return jsonify({"subscription_type": "free", "data": None})
 
     subscription_id = user_data["subscriptionId"]
 
@@ -174,7 +174,7 @@ def get_subscription():
     print(subscription_data)
     return jsonify(
         {
-            "susbcription_type": "monthly",
+            "subscription_type": "monthly",
             "data": {
                 "next_charge": subscription_data["current_period_end"],
                 "free_trial": subscription_data["trial_end"],
