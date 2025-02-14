@@ -22,7 +22,9 @@ try:
 except Exception as e:
     print(f"Error initializing Firebase app:{e}")
     raise
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+stripe.api_key = os.getenv(
+    "STRIPE_SECRET_KEY",
+)
 endpoint_secret = os.getenv("STRIPE_ENDPOINT_SECRET")
 # app config
 app = Flask(__name__)
@@ -130,6 +132,40 @@ def cancel_subscription():
         return jsonify({"message": "Subscription canceled successfully"})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/get-subscription", methods=["POST"])
+@cross_origin()
+def get_subscription():
+    data = request.json
+    if not data or not data["uid"]:
+        return jsonify({"error": "no uid specified"})
+    user_id = data["uid"]
+
+    # Get user from Firestore
+    db = firestore.client()
+    user_ref = db.collection("users").document(user_id).get()
+    if not user_ref.exists:
+        return jsonify({"error": "User not found"}), 404
+
+    user_data = user_ref.to_dict()
+    print(user_data)
+    if not "subscriptionId" in user_data:
+        return jsonify({"susbcription_type": "free", "data": None})
+
+    subscription_id = user_data["subscriptionId"]
+
+    subscription_data = stripe.Subscription.retrieve(subscription_id)
+    print(subscription_data)
+    return jsonify(
+        {
+            "susbcription_type": "monthly",
+            "data": {
+                "next_charge": subscription_data["current_period_end"],
+                "free_trial": subscription_data["trial_end"],
+            },
+        }
+    )
 
 
 @app.route("/webhook", methods=["POST"])
