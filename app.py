@@ -135,7 +135,6 @@ def cancel_subscription():
         return jsonify({"error": "User not found"}), 404
 
     user_data = user_ref.to_dict()
-    print(user_data)
     if not "subscriptionId" in user_data:
         return jsonify({"error": "no subscription"})
 
@@ -143,7 +142,7 @@ def cancel_subscription():
 
     try:
         stripe.Subscription.delete(subscription_id)
-
+        # update firebase db to not have the subscription anymore
         return jsonify({"message": "Subscription canceled successfully"})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -164,7 +163,7 @@ def get_subscription():
         return jsonify({"error": "User not found"}), 404
 
     user_data = user_ref.to_dict()
-    if not "subscriptionId" in user_data:
+    if not "subscriptionId" in user_data or not user_data["subscriptionActive"]:
         return jsonify({"subscription_type": "free", "data": None})
 
     subscription_id = user_data["subscriptionId"]
