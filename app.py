@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
 # Path to your service account JSON key file
-SERVICE_ACCOUNT_FILE = "C:/Users/marek/adwis_v2/adwis_api/adwis_secret2.json"
+SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_PATH")
 
 # Define the required scope
 SCOPES = ["https://www.googleapis.com/auth/androidpublisher"]
