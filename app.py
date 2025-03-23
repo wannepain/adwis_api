@@ -1,12 +1,28 @@
+import time
 from flask import Flask, json, jsonify
 from flask import request
 from flask_cors import CORS, cross_origin
 from dotenv import load_dotenv
 import os
-import stripe
 import firebase_admin
 from firebase_admin import firestore
 from google.cloud.firestore_v1 import FieldFilter
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
+
+# Path to your service account JSON key file
+SERVICE_ACCOUNT_FILE = "C:/Users/marek/adwis_v2/adwis_api/adwis_secret2.json"
+
+# Define the required scope
+SCOPES = ["https://www.googleapis.com/auth/androidpublisher"]
+
+# Authenticate with the service account
+credentials = service_account.Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE, scopes=SCOPES
+)
+
+# Build the API client
+service = build("androidpublisher", "v3", credentials=credentials)
 
 load_dotenv()
 
@@ -22,10 +38,7 @@ try:
 except Exception as e:
     print(f"Error initializing Firebase app:{e}")
     raise
-stripe.api_key = os.getenv(
-    "STRIPE_SECRET_KEY",
-)
-endpoint_secret = os.getenv("STRIPE_ENDPOINT_SECRET")
+
 # app config
 app = Flask(__name__)
 app.config["CORS_HEADERS"] = "Content-Type"
@@ -38,202 +51,84 @@ def respond_test():
     return jsonify({"hello": "world"})
 
 
-@app.route("/api/sign", methods=["POST"])
+@app.route("/subscription/check", methods=["POST"])
 @cross_origin()
-def sign_in():  # first check if the customer exists, then act accordingly
+def check_subscription_new():
     request_data = request.get_json()
-    user = request_data.get("user")
+    purchase_token = request_data.get("purchaseToken")
+    uid = request_data.get("uid")  # ✅ Safer way to get uid
 
-    if not user:
-        return jsonify({"success": False, "error": "User not specified"}), 400
-
+    if not purchase_token or not uid:
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "subscriptionActive": False,
+                    "nextCharge": None,
+                    "message": "no purchase token or no uid",
+                }
+            ),
+            400,
+        )
     try:
         db = firestore.client()
-        user_ref = db.collection("users").document(user["uid"]).get()
-
-        if not user_ref.exists:
-            return (
-                jsonify({"success": False, "error": "User not found"}),
-                404,
+        response = (
+            service.purchases()
+            .subscriptions()
+            .get(
+                packageName="com.wannepain.adwis",
+                subscriptionId="adwis_unlimited",
+                token=purchase_token,
             )
-
-        user_data = user_ref.to_dict()
-        stored_customer_id = user_data.get(
-            "stripeCustomerId",
-        )  # Correct way to get the field
-
-        if stored_customer_id:
-            return jsonify({"success": True, "error": None}), 200
-
-        # Create Stripe customer
-        customer = stripe.Customer.create(email=user["email"], name=user["name"])
-
-        # Store Stripe customer ID in Firestore
-
-        db.collection("users").document(user["uid"]).set(
-            {"stripeCustomerId": customer.id}, merge=True
+            .execute()
         )
 
-        return jsonify({"success": True, "error": None}), 200
+        print("Subscription Details:", response)
 
-    except Exception as e:
-        print(f"error in sign_in \n {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        start_time = int(response["startTimeMillis"]) // 1000  # Convert to seconds
+        end_time = (
+            int(response["expiryTimeMillis"]) // 1000
+        )  # ✅ FIXED: Convert expiry time
 
+        current_time = int(time.time())
 
-@app.route("/api/create-subscription", methods=["POST"])
-@cross_origin()
-def create_subscription():
-    data = request.json
-    if not data or not data["uid"]:
-        return jsonify({"error": "no uid"}), 404
+        subscription_active = (
+            current_time < end_time
+        )  # True if subscription is still active
+        subscription_type = "Monthly" if subscription_active else "Free"
 
-    user_id = data["uid"]
-
-    # Get user from Firestore
-    db = firestore.client()
-    user_ref = db.collection("users").document(user_id).get()
-    if not user_ref.exists:
-        return jsonify({"error": "User not found"}), 404
-
-    user_data = user_ref.to_dict()
-    stripe_customer_id = user_data["stripeCustomerId"]
-
-    # Create a Stripe subscription
-    try:
-        subscription = stripe.Subscription.create(
-            customer=stripe_customer_id,
-            items=[
-                {"price": "price_1QqF1UGg7dfr3NgwqDeBnb1T"}
-            ],  # Set Stripe Price ID here
-            payment_behavior="default_incomplete",
-            expand=["latest_invoice.payment_intent"],
+        # ✅ Update Firestore with latest subscription status
+        db.collection("users").document(uid).update(
+            {
+                "subscriptionActive": subscription_active,
+                "subscriptionType": subscription_type,
+                "nextCharge": end_time if subscription_active else None,
+            }
         )
 
         return jsonify(
             {
-                "subscriptionId": subscription.id,
-                "clientSecret": subscription.latest_invoice.payment_intent.client_secret,
+                "success": True,
+                "subscriptionActive": subscription_active,
+                "subscriptionType": subscription_type,
+                "nextCharge": end_time if subscription_active else None,
+                "message": "Subscription status updated",
             }
         )
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
-
-
-@app.route("/api/cancel-subscription", methods=["POST"])
-@cross_origin()
-def cancel_subscription():
-    data = request.json
-    if not data or not data["uid"]:
-        return jsonify({"error": "no uid specified"})
-    user_id = data["uid"]
-
-    # Get user from Firestore
-    db = firestore.client()
-    user_ref = db.collection("users").document(user_id).get()
-    if not user_ref.exists:
-        return jsonify({"error": "User not found"}), 404
-
-    user_data = user_ref.to_dict()
-    if not "subscriptionId" in user_data:
-        return jsonify({"error": "no subscription"})
-
-    subscription_id = user_data["subscriptionId"]
-
-    try:
-        stripe.Subscription.delete(subscription_id)
-        # update firebase db to not have the subscription anymore
-        return jsonify({"message": "Subscription canceled successfully"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
-
-
-@app.route("/api/get-subscription", methods=["POST"])
-@cross_origin()
-def get_subscription():
-    data = request.json
-    if not data or not data["uid"]:
-        return jsonify({"error": "no uid specified"})
-    user_id = data["uid"]
-
-    # Get user from Firestore
-    db = firestore.client()
-    user_ref = db.collection("users").document(user_id).get()
-    if not user_ref.exists:
-        return jsonify({"error": "User not found"}), 404
-
-    user_data = user_ref.to_dict()
-    if not "subscriptionId" in user_data or not user_data["subscriptionActive"]:
-        return jsonify({"subscription_type": "free", "data": None})
-
-    subscription_id = user_data["subscriptionId"]
-
-    subscription_data = stripe.Subscription.retrieve(subscription_id)
-    return jsonify(
-        {
-            "subscription_type": "monthly",
-            "data": {
-                "next_charge": subscription_data["current_period_end"],
-                "free_trial": subscription_data["trial_end"],
-            },
-        }
-    )
-
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    event = None
-    payload = request.data
-
-    try:
-        event = json.loads(payload)
-    except json.decoder.JSONDecodeError as e:
-        print("⚠️  Webhook error while parsing basic request." + str(e))
-        return jsonify(success=False)
-
-    if endpoint_secret:
-        sig_header = request.headers.get("stripe-signature")
-        try:
-            event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
-        except stripe.error.SignatureVerificationError as e:
-            print("⚠️  Webhook signature verification failed." + str(e))
-            return jsonify(success=False)
-
-    db = firestore.client()
-
-    if event["type"] == "invoice.payment_succeeded":
-        subscription_id = event["data"]["object"]["subscription"]
-        customer_id = event["data"]["object"]["customer"]
-
-        print(f"subscription_id:{subscription_id}")
-        print(f"customer_id:{customer_id}")
-        users_ref = (
-            db.collection("users")
-            .where(filter=FieldFilter("stripeCustomerId", "==", customer_id))
-            .stream()
-        )
-
-        for user_doc in users_ref:
-            user_doc.reference.update(
-                {"subscriptionActive": True, "subscriptionId": subscription_id}
-            )
-
-    elif event["type"] == "customer.subscription.deleted":
-        customer_id = event["data"]["object"]["customer"]
-
-        users_ref = (
-            db.collection("users")
-            .where(filter=FieldFilter("stripeCustomerId", "==", customer_id))
-            .stream()
-        )
-
-        for user_doc in users_ref:
-            user_doc.reference.update({"subscriptionActive": False})
-
-    else:
-        print("Unhandled event type {}".format(event["type"]))
-
-    return jsonify(success=True)
+        print("Error:", e)
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "subscriptionActive": False,
+                    "nextCharge": None,
+                    "message": "Internal server error",
+                }
+            ),
+            500,
+        )  # ✅ Return a
 
 
 if __name__ == "__main__":
